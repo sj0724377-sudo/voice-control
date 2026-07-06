@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Web Ground Control Station</title>
+    <style>
+        body { font-family: 'Arial', sans-serif; background-color: #1e1e2e; color: #cdd6f4; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .dashboard { display: flex; max-width: 1100px; width: 100%; gap: 20px; background-color: #181825; padding: 20px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+        .video-feed { background-color: #000; border-radius: 8px; width: 640px; height: 480px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .video-feed img { width: 100%; height: 100%; object-fit: cover; }
+        .control-panel { flex: 1; background-color: #252538; padding: 20px; border-radius: 8px; display: flex; flex-direction: column; gap: 15px; }
+        h2 { text-align: center; margin: 0 0 10px 0; color: #f5c2e7; letter-spacing: 1px; font-size: 1.4rem; }
+        .status-box { background-color: #11111b; padding: 12px; border-radius: 6px; text-align: center; font-weight: bold; font-family: monospace; }
+        .calibration-box { border: 1px solid #45475a; padding: 12px; border-radius: 6px; display: flex; flex-direction: column; gap: 10px; }
+        .slider-group { display: flex; flex-direction: column; gap: 2px; }
+        .slider-group label { font-size: 0.85rem; font-weight: bold; color: #bac2de; }
+        .slider-group input { width: 100%; cursor: pointer; accent-color: #89b4fa; }
+        button { font-weight: bold; padding: 12px; border: none; border-radius: 6px; cursor: pointer; transition: background 0.2s; font-size: 0.95rem; }
+        .btn-mic { background-color: #fab387; color: #11111b; }
+        .btn-ai { background-color: #a6e3a1; color: #11111b; }
+        .btn-ai.active { background-color: #f9e2af; }
+        .btn-stop { background-color: #f38ba8; color: #11111b; width: 100%; }
+        .drive-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 100%; max-width: 240px; margin: 0 auto; }
+        .drive-grid button { background-color: #89b4fa; color: #11111b; padding: 14px 0; }
+        .drive-grid .btn-brake { background-color: #f38ba8; }
+    </style>
+</head>
+<body>
+
+<div class="dashboard">
+    <div class="video-feed">
+        <img src="/video_feed" alt="Robot POV Network Stream">
+    </div>
+
+    <div class="control-panel">
+        <h2>GROUND CONTROL SYSTEM</h2>
+        
+        <div class="status-box" id="status-display">STATUS: MANUAL STANDBY</div>
+        <div class="status-box" id="target-display" style="color: #a6e3a1;">AI TARGET: CHAIR</div>
+
+        <div class="calibration-box">
+            <div class="slider-group">
+                <label>FORWARD CRUISE SPEED</label>
+                <input type="range" id="base_speed" min="60" max="200" value="90" onchange="syncSliders()">
+            </div>
+            <div class="slider-group">
+                <label>TURN SENSITIVITY (KP)</label>
+                <input type="range" id="kp" min="0.05" max="0.50" step="0.01" value="0.15" onchange="syncSliders()">
+            </div>
+            <div class="slider-group">
+                <label>ENVIRONMENT SCAN SPEED</label>
+                <input type="range" id="scan_speed" min="50" max="150" value="80" onchange="syncSliders()">
+            </div>
+        </div>
+
+        <button class="btn-mic" id="mic-btn" onclick="toggleVoiceRecord()">🎤 Voice Target Command</button>
+        <button class="btn-ai" id="ai-btn" onclick="toggleAINavigation()">🚀 Engage AI Tracking</button>
+        <button class="btn-stop" onclick="triggerEmergencyStop()">🛑 EMERGENCY LOCK</button>
+
+        <div class="drive-grid">
+            <div></div><button onclick="sendMove('F')">▲</button><div></div>
+            <button onclick="sendMove('L')">◀</button><button class="btn-brake" onclick="sendMove('S')">🛑</button><button onclick="sendMove('R')">▶</button>
+            <div></div><button onclick="sendMove('B')">▼</button><div></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let aiActive = false;
+    let mediaRecorder;
+    let audioChunks = [];
+
+    function syncSliders() {
+        fetch('/api/update_sliders', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                base_speed: document.getElementById('base_speed').value,
+                kp: document.getElementById('kp').value,
+                scan_speed: document.getElementById('scan_speed').value
+            })
+        });
+    }
+
+    function toggleAINavigation() {
+        aiActive = !aiActive;
+        const btn = document.getElementById('ai-btn');
+        const status = document.getElementById('status-display');
+        
+        if(aiActive) {
+            btn.textContent = "⏸ Pause AI Mode";
+            btn.classList.add('active');
+            status.textContent = "STATUS: AI AUTONOMOUS";
+            status.style.color = "#a6e3a1";
+        } else {
+            btn.textContent = "🚀 Engage AI Tracking";
+            btn.classList.remove('active');
+            status.textContent = "STATUS: AI PAUSED / MANUAL";
+            status.style.color = "#fab387";
+        }
+        
+        fetch('/api/toggle_ai', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ nav_enabled: aiActive })
+        });
+    }
+
+    function sendMove(dir) {
+        if(aiActive && dir !== 'S') {
+            aiActive = false;
+            const btn = document.getElementById('ai-btn');
+            btn.textContent = "🚀 Engage AI Tracking";
+            btn.classList.remove('active');
+        }
+        document.getElementById('status-display').textContent = dir === 'S' ? "STATUS: BRAKES APPLIED" : "STATUS: MANUAL OVERRIDE";
+        document.getElementById('status-display').style.color = dir === 'S' ? "#f38ba8" : "#fab387";
+        
+        fetch('/api/manual_drive', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ direction: dir })
+        });
+    }
+
+    function triggerEmergencyStop() {
+        aiActive = false;
+        const btn = document.getElementById('ai-btn');
+        btn.textContent = "🚀 Engage AI Tracking";
+        btn.classList.remove('active');
+        document.getElementById('status-display').textContent = "STATUS: LOCKED / EMERGENCY STOP";
+        document.getElementById('status-display').style.color = "#f38ba8";
+        fetch('/api/toggle_ai', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ nav_enabled: false })
+        });
+    }
+
+    async function toggleVoiceRecord() {
+        const micBtn = document.getElementById('mic-btn');
+        
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+            mediaRecorder.stop();
+            micBtn.textContent = "⚙️ Transcribing...";
+            micBtn.style.backgroundColor = "#f9e2af";
+            return;
+        }
+
+        audioChunks = [];
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            
+            let options = { mimeType: 'audio/webm' };
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                options = { mimeType: 'audio/ogg' };
+            }
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                options = {}; 
+            }
+
+            mediaRecorder = new MediaRecorder(stream, options);
+            
+            mediaRecorder.ondataavailable = event => {
+                if (event.data.size > 0) audioChunks.push(event.data);
+            };
+            
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+                const formData = new FormData();
+                formData.append('audio', audioBlob, 'voice.wav');
+
+                try {
+                    const response = await fetch('/api/voice_command', { method: 'POST', body: formData });
+                    const result = await response.json();
+                    if(result.target) {
+                        document.getElementById('target-display').textContent = `AI TARGET: ${result.target}`;
+                    }
+                } catch (err) {
+                    alert("Backend processing dropped out.");
+                }
+                
+                micBtn.textContent = "🎤 Voice Target Command";
+                micBtn.style.backgroundColor = "#fab387";
+                stream.getTracks().forEach(track => track.stop());
+            };
+
+            mediaRecorder.start();
+            micBtn.textContent = "🎙️ Listening (Click to Stop)...";
+            micBtn.style.backgroundColor = "#f38ba8";
+
+        } catch (err) {
+            console.error(err);
+            alert("Microphone Access Error. Make sure you use http://localhost:5000 in the address bar!");
+        }
+    }
+</script>
+
+</body>
+</html>

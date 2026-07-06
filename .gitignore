@@ -1,0 +1,15 @@
+# Ignore local AI model weights and training runs
+*.pt
+runs/
+
+# Ignore temporary voice processing files
+*.blob
+*.wav
+
+# Ignore python caches and system environments
+__pycache__/
+*.pyc
+.venv/
+.env
+.idea/
+.vscode/
