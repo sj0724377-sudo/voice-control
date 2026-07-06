@@ -1,3 +1,30 @@
+##  Code & Environment Requirements
+
+To run this backend control engine, your local environment must meet the following software, library, and hardware acceleration prerequisites.
+
+### 1. Core Runtime Environment
+* **Python Engine:** Python 3.8 to Python 3.11 (Python 3.10 recommended for stable CUDA mapping).
+* **Hardware Acceleration API:** NVIDIA CUDA Toolkit (v11.8 or v12.1) along with matching cuDNN libraries to enable real-time RTX 3050 GPU processing.
+
+### 2. Core Dependencies & Frameworks
+The project relies on the following primary Python library ecosystems:
+
+* **Web & Networking Frameworks:**
+  * `Flask` (Core web backend application handling control routes)
+  * `Flask-SocketIO` / `python-socketio` (Manages ultra-low-latency WebSocket channels to the ESP32)
+
+* **Computer Vision & Deep Learning Execution:**
+  * `ultralytics` (Engine powering the real-time YOLOv8 object detection)
+  * `opencv-python` (Handles incoming MJPEG stream capturing, matrix resizing, and CLAHE optical filtering)
+  * `torch` & `torchvision` (PyTorch compiled with CUDA support to offload vision arrays to VRAM)
+
+* **Automatic Speech Recognition (ASR):**
+  * `openai-whisper` (Offline transcription pipeline processing voice command blobs)
+  * `numpy` (Manages audio sampling matrix conversions)
+
+### 3. Required Local Artifacts (Not included in repo)
+Because heavy files are excluded via `.gitignore`, you must manually place the following files into your project root directory before spinning up the server:
+* **Custom Weights Matrix:** `best.pt` (Your custom-trained YOLOv8 model weights file).
 # 🏎️ ESP32 AI Robotics Car Controller
 
 This repository contains the full Edge-AI vision and voice processing control suite for an autonomous tracking robot car. The system leverages local hardware acceleration to run deep learning models seamlessly without reliance on external cloud APIs.
