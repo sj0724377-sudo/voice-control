@@ -1,30 +1,3 @@
-##  Code & Environment Requirements
-
-To run this backend control engine, your local environment must meet the following software, library, and hardware acceleration prerequisites.
-
-### 1. Core Runtime Environment
-* **Python Engine:** Python 3.8 to Python 3.11 (Python 3.10 recommended for stable CUDA mapping).
-* **Hardware Acceleration API:** NVIDIA CUDA Toolkit (v11.8 or v12.1) along with matching cuDNN libraries to enable real-time RTX 3050 GPU processing.
-
-### 2. Core Dependencies & Frameworks
-The project relies on the following primary Python library ecosystems:
-
-* **Web & Networking Frameworks:**
-  * `Flask` (Core web backend application handling control routes)
-  * `Flask-SocketIO` / `python-socketio` (Manages ultra-low-latency WebSocket channels to the ESP32)
-
-* **Computer Vision & Deep Learning Execution:**
-  * `ultralytics` (Engine powering the real-time YOLOv8 object detection)
-  * `opencv-python` (Handles incoming MJPEG stream capturing, matrix resizing, and CLAHE optical filtering)
-  * `torch` & `torchvision` (PyTorch compiled with CUDA support to offload vision arrays to VRAM)
-
-* **Automatic Speech Recognition (ASR):**
-  * `openai-whisper` (Offline transcription pipeline processing voice command blobs)
-  * `numpy` (Manages audio sampling matrix conversions)
-
-### 3. Required Local Artifacts (Not included in repo)
-Because heavy files are excluded via `.gitignore`, you must manually place the following files into your project root directory before spinning up the server:
-* **Custom Weights Matrix:** `best.pt` (Your custom-trained YOLOv8 model weights file).
 # 🏎️ ESP32 AI Robotics Car Controller
 
 This repository contains the full Edge-AI vision and voice processing control suite for an autonomous tracking robot car. The system leverages local hardware acceleration to run deep learning models seamlessly without reliance on external cloud APIs.
@@ -34,12 +7,70 @@ This repository contains the full Edge-AI vision and voice processing control su
 
 ---
 
-## 🛠️ Quick Start
-To spin up the server environment on your local network architecture, execute:
+## 📦 Code & Environment Prerequisites
+
+To run this backend control engine, your local environment must meet the following software, library, and hardware acceleration prerequisites:
+
+### 1. Core Runtime Environment
+* **Python Engine:** Python 3.8 to Python 3.11 (Python 3.10 is recommended for stable CUDA mapping).
+* **Hardware Acceleration API:** NVIDIA CUDA Toolkit (v11.8 or v12.x) along with matching cuDNN libraries to enable real-time RTX 3050 GPU processing.
+
+### 2. Core Dependencies & Frameworks
+The project relies on the following primary Python library ecosystems (all mapped inside `requirements.txt`):
+* **Web & Networking Frameworks:** `Flask==3.1.3`, `websocket-client==1.9.0`, `Werkzeug==3.1.8`
+* **Computer Vision & Deep Learning Execution:** `ultralytics==8.4.70`, `opencv-python==4.13.0.92`, `torch==2.12.1+cu126`, `torchvision==0.27.1+cu126`
+* **Automatic Speech Recognition (ASR):** `openai-whisper==20250625`, `faster-whisper==1.2.1`, `pydub==0.25.1`, `numpy==2.4.6`
+
+### 3. Required Local Artifacts (Not included in repo)
+Because heavy model files are excluded via `.gitignore`, you must manually place the following files into your project root directory before spinning up the server:
+* **Custom Weights Matrix:** `best.pt` (Your custom-trained YOLOv8 model weights file).
+
+---
+
+## 🛠️ Setup Procedure & How to Run
+
+### 1. Clone the Repository
+Open your terminal and clone the project to your local machine:
+```bash
+git clone [https://github.com/your-username/your-repo-name.git](https://github.com/your-username/your-repo-name.git)
+cd your-repo-name
+
+```
+
+### 2. Create and Activate a Virtual Environment
+
+It is highly recommended to use an isolated Python environment:
+
+```bash
+# Windows
+python -m venv venv
+venv\Scripts\activate
+
+# macOS / Linux
+python3 -m venv venv
+source venv/bin/activate
+
+```
+
+### 3. Install Required Dependencies
+
+Install the entire project library suite using the provided requirements file:
+
+```bash
+pip install -r requirements.txt
+
+```
+
+### 4. Run the Ground Control Server
+
+Ensure your ESP32 robot chassis and IP camera are powered on and connected to your local Wi-Fi network, then execute:
+
 ```bash
 python web_server.py
 
 ```
+
+Once the server initializes and detects your local Wi-Fi IP, open your web browser and navigate to `http://localhost:5000` (if on the host PC) or the LAN IP displayed in your terminal (e.g., `http://10.206.57.152:5000`) to access the Ground Control Station dashboard!
 
 ---
 
@@ -80,29 +111,28 @@ The steering mechanism utilizes a pixel-space **Proportional (P) Controller** to
 
 * **Error Isolation:**
 The system establishes the camera center at pixel column **320** (`FRAME_CENTER = 640 / 2`). The controller constantly tracks the horizontal center point of the object's bounding box and computes the exact pixel deviation (`delta_x`):
+
 ```text
 delta_x = ((x1 + x2) / 2) - 320
 
 ```
 
-
 * **Proportional Vectoring:**
 This error distance is multiplied by a proportional steering gain (`kp = 0.15`) to scale the steering response:
+
 ```text
 steering_bias = int(delta_x * kp)
 
 ```
 
-
 * **Differential Speed Mapping:**
 The bias values adjust the independent left and right wheel speeds relative to a baseline forward velocity:
+
 ```text
 Left Motor Speed = base_speed + steering_bias
 Right Motor Speed = base_speed - steering_bias
 
 ```
-
-
 
 ### 3. Safety, Memory, & Mechanical Execution
 
