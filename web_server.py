@@ -5,6 +5,7 @@ import torch
 import websocket
 import threading
 import numpy as np
+import socket  # 🚨 NEW: Added to auto-detect your Wi-Fi IP address!
 from flask import Flask, render_template, Response, request, jsonify
 from ultralytics import YOLO
 from transformers import pipeline
@@ -12,18 +13,17 @@ from pydub import AudioSegment
 
 app = Flask(__name__)
 
-# ==================== SYSTEM CONFIGURATION ====================
 ESP32_IP = "10.206.57.189"          
 CAMERA_STREAM_URL = "http://10.206.57.139:8080/video"  
 
 FRAME_WIDTH = 640
-FRAME_CENTER = 320                   
-MIN_SPEED = 50                       
+FRAME_CENTER = 320                  
+MIN_SPEED = 50                      
 
 # Global Dynamic Tracking States shared across network handlers
 control_state = {
     "nav_enabled": False,
-    "target_keyword": "bottle",  # Default starting target
+    "target_keyword": None,  # 🚨 BUG FIX: Starts as None (Not Specified) instead of defaulting to "bottle" or "chair"
     "base_speed": 90,
     "kp": 0.15,
     "scan_speed": 80             # Smooth continuous rotational velocity
@@ -99,6 +99,22 @@ def generate_video_feed():
             continue
 
         frame = cv2.resize(frame, (640, 480))
+
+        # 🚨 BUG FIX: Guard check! If no target is specified yet, do not run YOLO or track anything
+        if control_state["target_keyword"] is None:
+            cv2.putText(frame, "AI TARGET: NOT SPECIFIED (STANDBY)", (20, 35),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 165, 255), 2, cv2.LINE_AA)
+            
+            # Ensure motors stop immediately if navigation was accidentally toggled on
+            if control_state["nav_enabled"]:
+                send_stop()
+                control_state["nav_enabled"] = False
+                
+            ret, jpeg = cv2.imencode('.jpg', frame)
+            if not ret: continue
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n\r\n')
+            continue
 
         # Smoothed lens filter pass to clear shadows without blinding the model
         lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
@@ -204,6 +220,18 @@ def index():
 def video_feed():
     return Response(generate_video_feed(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+@app.route('/api/get_status', methods=['GET'])
+def get_status():
+    """🚨 NEW: Allows web dashboard to check target status on page load."""
+    target_str = control_state["target_keyword"].upper() if control_state["target_keyword"] else "NOT SPECIFIED"
+    return jsonify({
+        "nav_enabled": control_state["nav_enabled"],
+        "target": target_str,
+        "base_speed": control_state["base_speed"],
+        "kp": control_state["kp"],
+        "scan_speed": control_state["scan_speed"]
+    })
+
 @app.route('/api/update_sliders', methods=['POST'])
 def update_sliders():
     data = request.json
@@ -216,7 +244,15 @@ def update_sliders():
 def toggle_ai():
     global HYSTERESIS
     data = request.json
-    control_state["nav_enabled"] = bool(data.get("nav_enabled", False))
+    desired_state = bool(data.get("nav_enabled", False))
+    
+    # 🚨 BUG FIX: Refuse to activate AI navigation if no target is specified yet
+    if desired_state and control_state["target_keyword"] is None:
+        send_stop()
+        control_state["nav_enabled"] = False
+        return jsonify({"status": "no_target", "message": "Please specify a target first!", "nav_enabled": False})
+
+    control_state["nav_enabled"] = desired_state
     if not control_state["nav_enabled"]:
         send_stop()
         HYSTERESIS["lost_frame_counter"] = 0
@@ -293,7 +329,42 @@ def voice_command():
         if os.path.exists(raw_path): os.remove(raw_path)
         if os.path.exists(clean_wav_path): os.remove(clean_wav_path)
             
-    return jsonify({"status": "processed", "target": control_state["target_keyword"].upper()})
+    # 🚨 BUG FIX: Safely format target output in case it is still None
+    current_target_str = control_state["target_keyword"].upper() if control_state["target_keyword"] else "NOT SPECIFIED"
+    return jsonify({"status": "processed", "target": current_target_str})
+
+# =====================================================================
+# 🌐 CUSTOM FRIENDLY NETWORK LAUNCHER
+# =====================================================================
+def get_local_ip():
+    """Automatically detects the computer's Wi-Fi network IP address."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # Doesn't actually connect, just checks which network interface is active
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except Exception:
+        return "127.0.0.1"
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    wifi_ip = get_local_ip()
+    port = 5000
+
+    print("\n" + "="*65)
+    print(" 🚀 ESP32 AI ROBOTICS - GROUND CONTROL STATION ONLINE!")
+    print("="*65)
+    print(" HOW TO CONNECT TO YOUR DASHBOARD:")
+    print("")
+    print(" 💻 1. IF YOU ARE ON THIS LAPTOP:")
+    print(f"       👉 Open your browser to: http://localhost:{port}")
+    print("       (Uses direct internal loopback - fastest connection)")
+    print("")
+    print(" 📱 2. IF YOU ARE USING A PHONE, TABLET, OR ANOTHER PC:")
+    print(f"       👉 Open their browser to: http://{wifi_ip}:{port}")
+    print("       (Must be connected to the exact same Wi-Fi network!)")
+    print("="*65 + "\n")
+
+    # Start the Flask app
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)

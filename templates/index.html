@@ -37,7 +37,7 @@
         <h2>GROUND CONTROL SYSTEM</h2>
         
         <div class="status-box" id="status-display">STATUS: MANUAL STANDBY</div>
-        <div class="status-box" id="target-display" style="color: #a6e3a1;">AI TARGET: CHAIR</div>
+        <div class="status-box" id="target-display" style="color: #ff9900;">AI TARGET: NOT SPECIFIED</div>
 
         <div class="calibration-box">
             <div class="slider-group">
@@ -71,6 +71,29 @@
     let mediaRecorder;
     let audioChunks = [];
 
+    // 🚨 BUG FIX: Automatically check server variables as soon as webpage opens
+    window.onload = async function() {
+        try {
+            const response = await fetch('/api/get_status');
+            const data = await response.json();
+            
+            const targetEl = document.getElementById('target-display');
+            targetEl.textContent = `AI TARGET: ${data.target}`;
+            if(data.target === "NOT SPECIFIED") {
+                targetEl.style.color = "#ff9900"; // Orange alert for standby
+            } else {
+                targetEl.style.color = "#a6e3a1"; // Green for active tracking
+            }
+            
+            // Sync slider positions with backend values
+            document.getElementById('base_speed').value = data.base_speed;
+            document.getElementById('kp').value = data.kp;
+            document.getElementById('scan_speed').value = data.scan_speed;
+        } catch (e) {
+            console.warn("Could not sync initial status from backend.");
+        }
+    };
+
     function syncSliders() {
         fetch('/api/update_sliders', {
             method: 'POST',
@@ -83,28 +106,46 @@
         });
     }
 
-    function toggleAINavigation() {
-        aiActive = !aiActive;
+    async function toggleAINavigation() {
+        const desiredState = !aiActive;
         const btn = document.getElementById('ai-btn');
         const status = document.getElementById('status-display');
         
-        if(aiActive) {
-            btn.textContent = "⏸ Pause AI Mode";
-            btn.classList.add('active');
-            status.textContent = "STATUS: AI AUTONOMOUS";
-            status.style.color = "#a6e3a1";
-        } else {
-            btn.textContent = "🚀 Engage AI Tracking";
-            btn.classList.remove('active');
-            status.textContent = "STATUS: AI PAUSED / MANUAL";
-            status.style.color = "#fab387";
+        try {
+            const response = await fetch('/api/toggle_ai', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ nav_enabled: desiredState })
+            });
+            const result = await response.json();
+
+            // 🚨 BUG FIX: Check if backend rejected navigation due to missing target
+            if(result.status === "no_target") {
+                alert("⚠️ Cannot Engage AI Tracking: No target object has been specified yet!\n\nPlease click 'Voice Target Command' and say a valid target (e.g., 'bottle', 'chair') first.");
+                aiActive = false;
+                btn.textContent = "🚀 Engage AI Tracking";
+                btn.classList.remove('active');
+                status.textContent = "STATUS: STANDBY (NO TARGET)";
+                status.style.color = "#fab387";
+                return;
+            }
+
+            // Apply state if successful
+            aiActive = result.nav_enabled;
+            if(aiActive) {
+                btn.textContent = "⏸ Pause AI Mode";
+                btn.classList.add('active');
+                status.textContent = "STATUS: AI AUTONOMOUS";
+                status.style.color = "#a6e3a1";
+            } else {
+                btn.textContent = "🚀 Engage AI Tracking";
+                btn.classList.remove('active');
+                status.textContent = "STATUS: AI PAUSED / MANUAL";
+                status.style.color = "#fab387";
+            }
+        } catch (e) {
+            console.error("Failed to toggle AI mode:", e);
         }
-        
-        fetch('/api/toggle_ai', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ nav_enabled: aiActive })
-        });
     }
 
     function sendMove(dir) {
@@ -175,7 +216,13 @@
                     const response = await fetch('/api/voice_command', { method: 'POST', body: formData });
                     const result = await response.json();
                     if(result.target) {
-                        document.getElementById('target-display').textContent = `AI TARGET: ${result.target}`;
+                        const targetEl = document.getElementById('target-display');
+                        targetEl.textContent = `AI TARGET: ${result.target}`;
+                        if(result.target === "NOT SPECIFIED") {
+                            targetEl.style.color = "#ff9900";
+                        } else {
+                            targetEl.style.color = "#a6e3a1";
+                        }
                     }
                 } catch (err) {
                     alert("Backend processing dropped out.");
