@@ -1,13 +1,13 @@
-# 🏎️ ESP32 AI Robotics Car Controller
+#  ESP32 AI Robotics Car Controller
 
 This repository contains the full Edge-AI vision and voice processing control suite for an autonomous tracking robot car. The system leverages local hardware acceleration to run deep learning models seamlessly without reliance on external cloud APIs.
 
-## 🚀 Core Entry Point
+##  Core Entry Point
 * **`web_server.py`**: **[PRIMARY SYSTEM ENGINE]** Run this script to initialize the local Flask interface, establish ultra-low-latency WebSocket channels with the ESP32 chassis gateway, process incoming camera matrices on your dedicated GPU, and process voice inputs via local ASR.
 
 ---
 
-## 📦 Code & Environment Prerequisites
+##  Code & Environment Prerequisites
 
 To run this backend control engine, your local environment must meet the following software, library, and hardware acceleration prerequisites:
 
@@ -27,7 +27,7 @@ Because heavy model files are excluded via `.gitignore`, you must manually place
 
 ---
 
-## 🛠️ Setup Procedure & How to Run
+##  Setup Procedure & How to Run
 
 ### 1. Clone the Repository
 Open your terminal and clone the project to your local machine:
