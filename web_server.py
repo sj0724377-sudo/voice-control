@@ -5,7 +5,7 @@ import torch
 import websocket
 import threading
 import numpy as np
-import socket  # 🚨 NEW: Added to auto-detect your Wi-Fi IP address!
+import socket  # Auto-detect your Wi-Fi IP address
 from flask import Flask, render_template, Response, request, jsonify
 from ultralytics import YOLO
 from transformers import pipeline
@@ -19,11 +19,12 @@ CAMERA_STREAM_URL = "http://10.206.57.139:8080/video"
 FRAME_WIDTH = 640
 FRAME_CENTER = 320                  
 MIN_SPEED = 50                      
+PROXIMITY_BRAKE_RATIO = 0.35  # 🚨 NEW: Lowered from 0.75! (0.45 = stops further away, 0.80 = gets very close)
 
 # Global Dynamic Tracking States shared across network handlers
 control_state = {
     "nav_enabled": False,
-    "target_keyword": None,  # 🚨 BUG FIX: Starts as None (Not Specified) instead of defaulting to "bottle" or "chair"
+    "target_keyword": None,
     "base_speed": 90,
     "kp": 0.15,
     "scan_speed": 80             # Smooth continuous rotational velocity
@@ -37,8 +38,8 @@ HYSTERESIS = {
     "last_known_label": ""
 }
 
-# UPDATED CONFIGURATION BLOCK: Alphabetical dataset index target pool
-ROOM_TARGETS = ['bed', 'bottle', 'chair', 'fan', 'sofa', 'table']
+# 🚨 UPDATED BLOCK: Custom trained colored boxes!
+ROOM_TARGETS = ['red', 'pink', 'green', 'orange']
 # ==============================================================
 
 class FreshVideoStream:
@@ -65,13 +66,16 @@ print("\n========================================================")
 print("  Initializing High-Precision AI Suite on NVIDIA GPU... ")
 print("========================================================")
 
-# Load your newly compiled multi-object brain file
+# Load your newly compiled custom YOLO brain!
 yolo_model = YOLO("best.pt").to("cuda")
 
+print("⚡ Loading OpenAI Whisper-Small model in FP16 precision...")
+# 🚨 PERFORMANCE UPGRADE: Using whisper-small with FP16 (Half-Precision) for maximum RTX 3050 speed
 whisper_asr = pipeline(
     "automatic-speech-recognition", 
     model="openai/whisper-small", 
-    device=0
+    device=0,
+    torch_dtype=torch.float16
 )
 
 print("🚀 S-Tier AI Architecture successfully cached on VRAM hardware!\n")
@@ -89,7 +93,7 @@ video_stream = FreshVideoStream(CAMERA_STREAM_URL)
 def send_stop():
     if ws: ws.send("S")
 
-# Continuous AI Object Processing Generator Loop with Optimized Performance Filters
+# Continuous AI Object Processing Generator Loop
 def generate_video_feed():
     global control_state, HYSTERESIS
     
@@ -100,7 +104,7 @@ def generate_video_feed():
 
         frame = cv2.resize(frame, (640, 480))
 
-        # 🚨 BUG FIX: Guard check! If no target is specified yet, do not run YOLO or track anything
+        # Guard check! If no target is specified yet, do not run YOLO or track anything
         if control_state["target_keyword"] is None:
             cv2.putText(frame, "AI TARGET: NOT SPECIFIED (STANDBY)", (20, 35),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 165, 255), 2, cv2.LINE_AA)
@@ -116,7 +120,7 @@ def generate_video_feed():
                    b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n\r\n')
             continue
 
-        # Smoothed lens filter pass to clear shadows without blinding the model
+        # Smoothed lens filter pass to clear shadows
         lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
         clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
@@ -124,7 +128,7 @@ def generate_video_feed():
         limg = cv2.merge((cl, a, b))
         frame_filtered = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
 
-        # OPTIMIZED: Increased confidence gate to 0.40 for strict, highly precise tracking
+        # Baseline 0.40 confidence gate for stable tracking
         results = yolo_model(frame_filtered, verbose=False, imgsz=640, conf=0.40)
         target_found_this_frame = False
         
@@ -134,12 +138,11 @@ def generate_video_feed():
 
         for result in results:
             for box in result.boxes:
-                # Extract the class name string dynamically directly from the model vocabulary
                 class_id = int(box.cls[0])
                 label = yolo_model.names[class_id].lower().strip()
                 current_target = control_state["target_keyword"].lower().strip()
                 
-                # Broadened check: Matches exact words or substrings safely
+                # Broadened check: This maps "green" (spoken) to "green_box" (YOLO output)
                 if current_target in label or label in current_target:
                     target_found_this_frame = True
                     x1, y1, x2, y2 = box.xyxy[0].tolist()
@@ -164,14 +167,10 @@ def generate_video_feed():
             if control_state["nav_enabled"]:
                 proximity_ratio = box_width / FRAME_WIDTH
                 
-                # UNTOUCHED: Kept at your original 0.75 ratio limit value
-                if proximity_ratio > 0.75:  
-                    send_stop()  # Halt the chassis silently without console logging
-                    
-                    # Turn off navigation mode completely so it waits for you
+                # 🚨 FIX: Replaced static 0.75 with the PROXIMITY_BRAKE_RATIO variable here!
+                if proximity_ratio > PROXIMITY_BRAKE_RATIO:  
+                    send_stop()  
                     control_state["nav_enabled"] = False
-                    
-                    # Clear memory flags safely
                     HYSTERESIS["last_known_label"] = ""
                     HYSTERESIS["lost_frame_counter"] = 0
                 else:
@@ -200,7 +199,6 @@ def generate_video_feed():
                     scan = control_state["scan_speed"]
                     if ws: ws.send(f"M,{-scan},{scan}")
 
-        # Display visual overlay on the stream frame if the target was reached
         if not control_state["nav_enabled"] and HYSTERESIS["lost_frame_counter"] == 0 and label_spotted != "":
             cv2.putText(frame, "TARGET REACHED - WAITING FOR COMMAND", (50, 240),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
@@ -222,7 +220,6 @@ def video_feed():
 
 @app.route('/api/get_status', methods=['GET'])
 def get_status():
-    """🚨 NEW: Allows web dashboard to check target status on page load."""
     target_str = control_state["target_keyword"].upper() if control_state["target_keyword"] else "NOT SPECIFIED"
     return jsonify({
         "nav_enabled": control_state["nav_enabled"],
@@ -246,7 +243,6 @@ def toggle_ai():
     data = request.json
     desired_state = bool(data.get("nav_enabled", False))
     
-    # 🚨 BUG FIX: Refuse to activate AI navigation if no target is specified yet
     if desired_state and control_state["target_keyword"] is None:
         send_stop()
         control_state["nav_enabled"] = False
@@ -283,7 +279,6 @@ def voice_command():
     
     audio_file = request.files['audio']
     audio_bytes = audio_file.read()
-    print(f"📥 Received Audio Byte Block Size: {len(audio_bytes)} bytes")
     
     raw_path = "raw_received.blob"
     clean_wav_path = "target_voice_clean.wav"
@@ -297,9 +292,11 @@ def voice_command():
         sound.export(clean_wav_path, format="wav")
         
         print("⚙️ Executing Whisper Neural Analysis...")
-        prompt_text = "bed, bottle, chair, fan, sofa, table, find, track, robot"
+        # 🚨 UPDATED PROMPT: Giving Whisper the hint for your exact custom colors
+        prompt_text = "red box, pink box, green box, orange box, red, pink, green, orange, find, track, robot"
         prompt_ids = whisper_asr.tokenizer.get_prompt_ids(prompt_text)
         
+        # Kept "language": "en" for whisper-small since it is a multilingual model
         result = whisper_asr(
             clean_wav_path,
             generate_kwargs={
@@ -329,7 +326,6 @@ def voice_command():
         if os.path.exists(raw_path): os.remove(raw_path)
         if os.path.exists(clean_wav_path): os.remove(clean_wav_path)
             
-    # 🚨 BUG FIX: Safely format target output in case it is still None
     current_target_str = control_state["target_keyword"].upper() if control_state["target_keyword"] else "NOT SPECIFIED"
     return jsonify({"status": "processed", "target": current_target_str})
 
@@ -337,10 +333,8 @@ def voice_command():
 # 🌐 CUSTOM FRIENDLY NETWORK LAUNCHER
 # =====================================================================
 def get_local_ip():
-    """Automatically detects the computer's Wi-Fi network IP address."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # Doesn't actually connect, just checks which network interface is active
         s.connect(("8.8.8.8", 80))
         local_ip = s.getsockname()[0]
         s.close()
@@ -366,5 +360,4 @@ if __name__ == '__main__':
     print("       (Must be connected to the exact same Wi-Fi network!)")
     print("="*65 + "\n")
 
-    # Start the Flask app
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)

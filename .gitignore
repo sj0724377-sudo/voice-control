@@ -13,3 +13,8 @@ __pycache__/
 .env
 .idea/
 .vscode/
+
+my_dataset/
+runs/
+*.blob
+*.wav
